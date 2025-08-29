@@ -116,7 +116,10 @@ class PPO_VecEnv:
         }
 
     def train(self, total_timesteps=100000, log_interval=1):
-        state, info = self.env.reset()
+        try:
+            state, info = self.env.reset()
+        except:
+            state = self.env.reset()
         start_time = time.time()
         
         total_updates = total_timesteps // (self.n_steps * self.n_envs)
