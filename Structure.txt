@@ -1,0 +1,41 @@
+continual_rl_trading/
+├── data/
+│   ├── raw/                      # Data saham asli per saham
+│   └── processed/                # Dataset per-regime (bullish, bearish, sideways)
+├── envs/
+│   └── stock_trading_env.py     # Custom gym.Env untuk trading
+├── models/
+│   ├── ppo_agent.py             # PPO agent standar
+│   └── ppo_ewc_agent.py         # PPO agent dengan EWC
+├── utils/
+│   ├── data_loader.py           # Loader untuk time-split data
+│   └── indicators.py            # Hitung RSI, MACD, EMA
+├── train/
+│   ├── train_baseline.py        # PPO biasa
+│   └── train_ewc.py             # PPO dengan EWC (continual learning)
+├── test/
+│   └── evaluate.py              # Evaluasi cross-regime
+├── config.yaml
+└── main.py
+
+continual_rl_trading/
+├── data/
+│   └── raw/                          # (optional) cache raw files
+├── utils/
+│   ├── data_loader.py               # Ambil data dari yfinance
+│   ├── indicators.py                # Tambah indikator FinTA
+│   ├── preprocessing.py             # Untuk PPO/tabular state
+│   └── preprocessing_graph.py       # Untuk GNN (PyG Data)
+├── envs/
+│   ├── baseline_trading_env.py      # PPO / PPO+EWC tanpa graph
+│   └── graph_trading_env.py         # PPO with GNN / GNN+EWC
+├── models/
+│   └── gnn_policy.py                # GCN, GAT, dll
+├── continual/
+│   └── ewc.py                       # Elastic Weight Consolidation
+├── main/
+│   ├── train_baseline.py            # PPO baseline training
+│   ├── train_gnn.py                 # PPO+GNN
+│   └── train_gnn_ewc.py             # PPO+GNN+EWC
+└── config/
+    └── params.yaml                  # Hyperparams, tickers, etc
