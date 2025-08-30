@@ -147,7 +147,11 @@ class PPO_VecEnv:
                     log_prob = dist.log_prob(action).sum(dim=-1)
                     action_clamped = torch.clamp(action, 0, 1)
 
-                next_state, rewards, terminateds, truncateds, infos = self.env.step(action_clamped.cpu().numpy())
+                try:
+                  next_state, rewards, terminateds, truncateds, infos = self.env.step(action_clamped.cpu().numpy())
+                except:
+                  next_state, rewards, terminateds, infos = self.env.step(action_clamped.cpu().numpy())
+                  truncateds = False
 
                 states_buf[step] = state
                 actions_buf[step] = action_clamped.cpu().numpy()
