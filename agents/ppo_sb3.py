@@ -44,6 +44,12 @@ class PPO:
         self.optimizer = optim.Adam(self.policy.parameters(), lr=self.hp["lr"], eps=1e-5)
         self.scheduler = None
 
+        # <--- REVISI: Atribut untuk melacak progres pelatihan ---
+        self.num_timesteps = 0
+        self.n_updates = 0
+        self.last_obs = None
+        self.ep_info_buffer = deque(maxlen=100)
+
     def _get_action_and_value(self, state):
         """ Helper function internal untuk mendapatkan aksi dan value dari policy. """
         state = torch.tensor(state, dtype=torch.float64).to(self.device).unsqueeze(0)
@@ -129,76 +135,91 @@ class PPO:
             'learning_rate': self.optimizer.param_groups[0]['lr'], 'clip_range': self.hp["clip_epsilon"]
         }
 
-    def train(self, total_timesteps: int, log_interval: int = 1):
-        state, info = self.env.reset()
+    def train(self, total_timesteps: int, log_interval: int = 1, log_filename=None):
+        # <--- REVISI: Logika training disesuaikan untuk bisa melanjutkan ---
+        
+        # Reset lingkungan hanya jika ini adalah sesi training baru
+        if self.last_obs is None:
+            self.last_obs, info = self.env.reset()
+        
         start_time = time.time()
         
-        total_updates = total_timesteps // self.hp["n_steps"]
-        self.scheduler = torch.optim.lr_scheduler.LinearLR(self.optimizer, start_factor=1.0, end_factor=0.1, total_iters=total_updates)
-        
-        ep_info_buffer = deque(maxlen=100)
-        
-        training_start_time = time.strftime("%Y-%m-%d_%H-%M-%S")
-        log_filename = f"PPO_train_{training_start_time}.csv"
-        csv_file = open(log_filename, "w", newline="")
+        # Inisialisasi scheduler hanya jika belum ada
+        if self.scheduler is None:
+            total_updates = total_timesteps // self.hp["n_steps"]
+            self.scheduler = torch.optim.lr_scheduler.LinearLR(
+                self.optimizer, start_factor=1.0, end_factor=0.1, total_iters=total_updates
+            )
+
+        if log_filename is None:
+            training_start_time = time.strftime("%Y-%m-%d_%H-%M")
+            log_filename = f"PPO_train_{training_start_time}.csv"
+        file_mode = 'a' if self.n_updates > 0 else 'w'
+        csv_file = open(log_filename, file_mode, newline="")
         csv_writer = None
         print(f"Logging training metrics to {log_filename}")
         
-        total_steps_so_far, update_count = 0, 0
-        while total_steps_so_far < total_timesteps:
+        # Loop utama melanjutkan dari progres terakhir
+        while self.num_timesteps < total_timesteps:
             trajectories = defaultdict(list)
+            
             for _ in range(self.hp["n_steps"]):
-                total_steps_so_far += 1
+                self.num_timesteps += 1 # Update counter global
                 
-                action, log_prob, value = self._get_action_and_value(state)
+                action, log_prob, value = self._get_action_and_value(self.last_obs)
                 next_state, reward, terminated, truncated, info = self.env.step(action)
                 
-                trajectories['states'].append(state)
+                trajectories['states'].append(self.last_obs)
                 trajectories['actions'].append(action)
                 trajectories['log_probs'].append(log_prob)
                 trajectories['rewards'].append(reward)
                 trajectories['terminals'].append(terminated)
                 trajectories['values'].append(value)
-                state = next_state
+                
+                self.last_obs = next_state
                 
                 if terminated or truncated:
                     if "episode" in info:
-                        ep_info_buffer.append(info["episode"])
-                    state, info = self.env.reset()
+                        self.ep_info_buffer.append(info["episode"])
+                    self.last_obs, info = self.env.reset()
             
             with torch.no_grad():
-                _, _, last_value = self._get_action_and_value(state)
+                _, _, last_value = self._get_action_and_value(self.last_obs)
             
-            advantages, returns = self.compute_gae_advantages(trajectories['rewards'], trajectories['terminals'], trajectories['values'], last_value)
+            advantages, returns = self.compute_gae_advantages(
+                trajectories['rewards'], trajectories['terminals'], trajectories['values'], last_value
+            )
             trajectories['advantages'], trajectories['returns'] = advantages, returns
             
             update_info = self.update(trajectories)
             self.scheduler.step()
-            update_count += 1
+            self.n_updates += 1 # Update counter global
             
-            if log_interval is not None and update_count % log_interval == 0:
-                log_values = self._log_training(start_time, total_steps_so_far, update_count, update_info, ep_info_buffer)
+            if log_interval is not None and self.n_updates % log_interval == 0:
+                log_values = self._log_training(start_time, update_info)
                 
                 if csv_writer is None:
                     header = list(log_values.keys())
                     csv_writer = csv.DictWriter(csv_file, fieldnames=header)
-                    csv_writer.writeheader()
+                    # Tulis header hanya jika file baru dibuat (mode 'w')
+                    if file_mode == 'w':
+                        csv_writer.writeheader()
                 csv_writer.writerow(log_values)
                 csv_file.flush()
 
         csv_file.close()
 
-    def _log_training(self, start_time, total_steps, update_count, update_info, ep_info_buffer):
+    def _log_training(self, start_time, update_info):
         elapsed = int(time.time() - start_time)
         log_values = {
-            "time/fps": int(total_steps / elapsed) if elapsed > 0 else 0,
-            "time/iterations": update_count,
+            "time/fps": int(self.num_timesteps / elapsed) if elapsed > 0 else 0,
+            "time/iterations": self.n_updates,
             "time/time_elapsed": elapsed,
-            "time/total_timesteps": total_steps,
+            "time/total_timesteps": self.num_timesteps,
         }
-        if len(ep_info_buffer) > 0:
-            log_values["rollout/ep_len_mean"] = np.mean([ep['l'] for ep in ep_info_buffer])
-            log_values["rollout/ep_rew_mean"] = np.mean([ep['r'] for ep in ep_info_buffer])
+        if len(self.ep_info_buffer) > 0:
+            log_values["rollout/ep_len_mean"] = np.mean([ep['l'] for ep in self.ep_info_buffer])
+            log_values["rollout/ep_rew_mean"] = np.mean([ep['r'] for ep in self.ep_info_buffer])
         
         log_values.update({f"train/{k}": v for k, v in update_info.items()})
 
@@ -228,14 +249,20 @@ class PPO:
             "policy_state_dict": self.policy.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "scheduler_state_dict": self.scheduler.state_dict() if self.scheduler else None,
-            "hyperparameters": self.hp
+            "hyperparameters": self.hp,
+            # <--- REVISI: Simpan progres pelatihan ---
+            "num_timesteps": self.num_timesteps,
+            "n_updates": self.n_updates
         }
         torch.save(agent_state, path)
-        print(f"Agent saved to {path}")
+        print(f"Agent saved to {path} at {self.num_timesteps} timesteps.")
 
     @classmethod
     def load(cls, path: str, env, policy_class, scaler, device: str = 'cpu'):
         saved_state = torch.load(path, map_location=device)
+        
+        # Muat hyperparameter dari file, bukan dari argumen default
+        hyperparameters = saved_state["hyperparameters"]
         
         policy = policy_class(
             obs_shape=env.observation_space.shape,
@@ -244,14 +271,20 @@ class PPO:
         ).double().to(device)
         policy.load_state_dict(saved_state["policy_state_dict"])
         
-        agent = cls(policy_net=policy, env=env, device=device, **saved_state["hyperparameters"])
+        # Buat agen baru dengan hyperparameter yang TERSIMPAN
+        agent = cls(policy_net=policy, env=env, device=device, **hyperparameters)
         agent.optimizer.load_state_dict(saved_state["optimizer_state_dict"])
         
-        # Scheduler perlu dibuat ulang sebelum memuat state-nya
+        # <--- REVISI: Muat progres pelatihan ---
+        agent.num_timesteps = saved_state["num_timesteps"]
+        agent.n_updates = saved_state["n_updates"]
+        
+        # Penting: Inisialisasi ulang scheduler diperlukan saat melanjutkan pelatihan
+        # Ini akan di-handle secara otomatis saat .train() dipanggil
         if saved_state["scheduler_state_dict"]:
-            # Kita perlu tahu total_timesteps untuk membuat scheduler dengan benar
-            # Untuk sekarang, kita buat placeholder atau lewati
-            print("Warning: Scheduler state loaded but may need total_timesteps to be re-initialized correctly in train().")
+            # Kita tidak memuat state scheduler secara langsung karena total_iters bisa berbeda
+            # Sebagai gantinya, scheduler akan dibuat ulang di .train()
+            print("Optimizer and policy loaded. Scheduler will be re-initialized in train().")
 
-        print(f"Agent policy and optimizer loaded from {path}")
+        print(f"Agent loaded from {path}. Resuming from {agent.num_timesteps} timesteps.")
         return agent
