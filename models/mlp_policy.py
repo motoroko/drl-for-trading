@@ -33,9 +33,9 @@ class MLPPolicy(nn.Module):
         self.value_head = nn.Linear(last_size, 1)
 
     def forward(self, obs):
+        # Method forward sekarang hanya fokus menghitung output dasar
         batch_size = obs.shape[0]
         # --- REVISI UTAMA DI SINI ---
-        
         # Flatten observasi untuk memisahkan fitur
         # Shape: (batch * window * assets, total_features)
         obs_flat = obs.reshape(-1, obs.shape[-1])
@@ -44,21 +44,66 @@ class MLPPolicy(nn.Module):
         
         # 2. Normalisasi HANYA fitur pasar
         normalized_market_features = (market_features - self.obs_mean) / (self.obs_std + 1e-8)
-        # 3. Gabungkan kembali fitur yang sudah dinormalisasi dengan fitur yang tidak dinormalisasi
-        #processed_obs_flat = torch.cat((normalized_market_features, portfolio_weight_feature), dim=1)
         
         # Kembalikan ke shape 4D aslinya
         processed_obs = normalized_market_features.reshape(obs.shape)
-        
         # --- SELESAI REVISI NORMALISASI ---
-
-        # Flatten semua dimensi untuk masuk ke MLP
-        x = processed_obs.reshape(batch_size, -1)
         
-        # Sisa dari forward pass tetap sama
+        x = processed_obs.reshape(batch_size, -1)
         x = self.feature_extractor(x)
+        
         action_mean = self.action_mean(x)
         action_std = self.log_std.exp()
         value = self.value_head(x)
 
-        return action_mean, action_std, value.squeeze(-1)
+        return action_mean, action_std, value
+    # def forward(self, obs):
+    #     batch_size = obs.shape[0]
+    #     # --- REVISI UTAMA DI SINI ---
+        
+    #     # Flatten observasi untuk memisahkan fitur
+    #     # Shape: (batch * window * assets, total_features)
+    #     obs_flat = obs.reshape(-1, obs.shape[-1])
+    #     # 1. Pisahkan fitur pasar (misal: 14 fitur pertama) dari fitur non-pasar (misal: 1 fitur terakhir)
+    #     market_features = obs_flat[:, :]
+        
+    #     # 2. Normalisasi HANYA fitur pasar
+    #     normalized_market_features = (market_features - self.obs_mean) / (self.obs_std + 1e-8)
+    #     # 3. Gabungkan kembali fitur yang sudah dinormalisasi dengan fitur yang tidak dinormalisasi
+    #     #processed_obs_flat = torch.cat((normalized_market_features, portfolio_weight_feature), dim=1)
+        
+    #     # Kembalikan ke shape 4D aslinya
+    #     processed_obs = normalized_market_features.reshape(obs.shape)
+        
+    #     # --- SELESAI REVISI NORMALISASI ---
+
+    #     # Flatten semua dimensi untuk masuk ke MLP
+    #     x = processed_obs.reshape(batch_size, -1)
+        
+    #     # Sisa dari forward pass tetap sama
+    #     x = self.feature_extractor(x)
+    #     action_mean = self.action_mean(x)
+    #     action_std = self.log_std.exp()
+    #     value = self.value_head(x)
+
+    #     return action_mean, action_std, value.squeeze(-1)
+
+    def get_action_and_value(self, obs, action=None):
+        # Method ini akan digunakan oleh PPO untuk mendapatkan semua yang dibutuhkan
+        action_mean, action_std, value = self.forward(obs)
+        dist = Normal(action_mean, action_std)
+        if action is None:
+            action = dist.sample()
+        
+        log_prob = dist.log_prob(action).sum(dim=-1)
+        action_clamped = torch.clamp(action, 0, 1)
+        
+        return action_clamped, value, log_prob
+
+    def evaluate_actions(self, obs, action):
+        # Method ini digunakan saat update PPO
+        action_mean, action_std, value = self.forward(obs)
+        dist = Normal(action_mean, action_std)
+        log_prob = dist.log_prob(action).sum(dim=-1)
+        entropy = dist.entropy().sum(dim=-1).mean()
+        return value, log_prob, entropy
