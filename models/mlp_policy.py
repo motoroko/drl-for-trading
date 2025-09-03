@@ -3,6 +3,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
+from torch.distributions import Normal
 from sklearn.preprocessing import StandardScaler
 
 class MLPPolicy(nn.Module):
