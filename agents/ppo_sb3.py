@@ -202,12 +202,25 @@ class PPO:
         
         log_values.update({f"train/{k}": v for k, v in update_info.items()})
 
-        print("-----------------------------------------")
+        print("--------------------------------------------------")
         for name, value in log_values.items():
             if isinstance(value, (int, np.integer)): formatted_value = f"{int(value):d}"
             else: formatted_value = f"{value:.5f}"
             print(f"| {name.ljust(30)} | {formatted_value.rjust(20)} |")
-        print("-----------------------------------------")
+        print("--------------------------------------------------")
+        # print("--------------------------------------------------")
+        # for category, items in log_values.items():
+        #     if not items: continue
+        #     print(f"| {category.split(',')[0]}/".ljust(25) + "  |".rjust(25))
+        #     for name, value in items.items():
+        #         if name in ['fps','iterations','time_elapsed','total_timesteps','n_updates']:
+        #             formatted_value = f"{value:d}"
+        #         elif abs(value) > 100000 or (abs(value) < 0.001 and value != 0):
+        #             formatted_value = f"{value:.5e}"
+        #         else:
+        #             formatted_value = f"{value:.5f}"
+        #         print(f"| {name.ljust(30)} | {formatted_value.rjust(20)} |")
+        # print("--------------------------------------------------")
         return log_values
 
     def save(self, path: str):
