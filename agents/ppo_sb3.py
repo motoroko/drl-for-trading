@@ -103,7 +103,7 @@ class PPO:
             indices = np.random.permutation(self.hp["n_steps"])
             for idx in range(0, self.hp["n_steps"], self.hp["batch_size"]):
                 batch_indices = indices[idx : idx + self.hp["batch_size"]]
-                _, new_values, new_log_probs, entropy = self.policy.evaluate_actions(states[batch_indices], actions[batch_indices])
+                new_values, new_log_probs, entropy = self.policy.evaluate_actions(states[batch_indices], actions[batch_indices])
                 
                 ratio = (new_log_probs - old_log_probs[batch_indices]).exp()
                 surr1 = ratio * advantages[batch_indices]
